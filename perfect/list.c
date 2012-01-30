@@ -12,7 +12,9 @@ LinkedList* new_list() {
 }
 
 void destroy_list(LinkedList *lp) {
-  destroy_list(lp->next);
+  if(lp->next != NULL) {
+    destroy_list(lp->next);
+  }
   free((void *) lp);
 }
 

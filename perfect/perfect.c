@@ -3,6 +3,7 @@
 //
 
 #include <stdlib.h>
+#include <stdio.h>
 #include "divisor.h"
 
 int is_perfect(int n) {
@@ -24,8 +25,8 @@ int main(int argc, char **argv) {
     num = atoi(argv[1]);
     
     for (i = 1; i <= num; i++) {
-      if(is_perfect(num)) {
-        printf("%d is perfect\n", num);
+      if(is_perfect(i)) {
+        printf("%d is perfect\n", i);
       }
     }
   }
