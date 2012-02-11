@@ -40,6 +40,13 @@ def draw_square(surface, color, center, half_side):
 def t_int(tup):
   return (int(tup[0]), int(tup[1]))
 
+def stopped_car_at(length):
+  c = Car()
+  c.position = length
+  c.speed = 0
+  c.target_speed = 0
+  return c
+
 
 class Car(object):
   def __init__(self):
@@ -47,12 +54,13 @@ class Car(object):
     self.speed = 0
     self.target_speed = 0
     self.road = None
+    self.road_choice = None
 
   def draw(self, surface):
-    pos_x = self.position/self.road.length * (self.road.end[0]-self.road.start[0]) + self.road.start[0]
-    pos_y = self.position/self.road.length * (self.road.end[1]-self.road.start[1]) + self.road.start[1]
-    draw_square(surface, BLACK, (pos_x, pos_y), CAR_RADIUS)
+    draw_square(surface, BLACK, self.screen_position(), CAR_RADIUS)
 
+  def screen_position(self):
+    return self.road.road_pos_to_screen(self.position)
 
   # Takes into account safety due to sudden deceleration of next car
   # other in front of self
@@ -79,6 +87,24 @@ class Car(object):
     self.position += step*self.speed
 
 
+  # HAVE SMARTER ROUTING
+  def next_turn(self):
+    return self.road_choice
+
+  def after_enter_road(self):
+    if len(self.road.intersection.out_roads) > 0:
+      self.road_choice = random.choice(self.road.intersection.out_roads)
+    else:
+      self.road_choice = None
+
+
+
+  def hard_stop(self, position):
+    self.position = position - CAR_LENGTH
+    self.speed    = 0
+
+
+
 class Road(object):
   def __init__(self):
     self.start = (0, 0)
@@ -95,6 +121,11 @@ class Road(object):
       return None
     return self.cars[-1]
 
+  def road_pos_to_screen(self, pos):
+    pos_x = pos/self.length * (self.end[0]-self.start[0]) + self.start[0]
+    pos_y = pos/self.length * (self.end[1]-self.start[1]) + self.start[1]
+    return (pos_x, pos_y)
+
   def set_line(self, start_at, end_at):
     self.start = start_at
     self.end = end_at
@@ -104,6 +135,7 @@ class Road(object):
     self.cars.append(car)
     car.road = self
     car.position = 0
+    car.after_enter_road()
 
   def draw(self, surface):
     pygame.draw.line(surface, BLACK, t_int(self.start), t_int(self.end))
@@ -115,13 +147,14 @@ class Road(object):
       self.draw_light(surface, GREEN)
     elif self in self.intersection.yellow_lights:
       self.draw_light(surface, YELLOW)
-    else:
+    elif self in self.intersection.red_lights:
       self.draw_light(surface, RED)
 
 
   def draw_light(self, surface, color):
     # May have to deal better with light placement, based on direction of road
-    draw_square(surface, color, (self.end[0]-10,self.end[1]-10), 3)
+    screen_pos = self.road_pos_to_screen(self.length - CAR_LENGTH)
+    draw_square(surface, color, screen_pos, 3)
 
   def update(self, step):
     prev = None # Confusingly, prev is the next car in front of the current car (but the previous one to be processed)
@@ -131,17 +164,13 @@ class Road(object):
       c = self.cars[i]
       
       # If we are at the front of the road and we cannot cross
-      if prev == None and self.intersection and not self.intersection.can_cross(self, None):
+      if prev == None and not self.intersection.can_cross(c):
         # Add an imaginary car to force cars to slow for intersection
-        prev = Car()
-        prev.position = self.length
-        prev.speed = 0
-        prev.target_speed = 0
+        prev = stopped_car_at(self.length)
 
       # If we are in the front of this road 
       if prev == None and len(self.intersection.out_roads) > 0:
-        # ROUTING
-        next_road = self.intersection.out_roads[0]
+        next_road = self.intersection.out_roads[0] # NEED TO ROUTE
         next_car = next_road.last_car()
         
         if next_car:
@@ -152,25 +181,21 @@ class Road(object):
 
       c.update(step, prev)
 
-      # CAR COLLISION PREVENTION
-      if prev and c.position > prev.position - CAR_LENGTH:    # Minor collision
-        c.position = prev.position - CAR_LENGTH
-        c.speed    = 0
+      # CAR COLLISION PREVENTION (HACK, CARS SHOULD SLOW DOWN)
+      if prev and c.position > prev.position - CAR_LENGTH:
+        c.hard_stop(prev.position)
       
       # END OF ROAD
       if c.position > self.length:
-
-        if self.intersection and self.intersection.can_cross(self, None):
+        if self.intersection.can_cross(c):
           # ENTER INTERSECTION
-          
           self.cars.popleft()
-          i -= 1
           self.intersection.transfer_car(c)
 
+          i -= 1
         else:
-          # STOP AT INTERSECTION
-          c.position = self.length - CAR_LENGTH
-          c.speed = 0
+          # STOP AT INTERSECTION (HACK, CARS SHOULD SLOW DOWN)
+          c.hard_stop(self.length)
       
       if c.road == self:
         prev = c
@@ -190,26 +215,39 @@ class Intersection(object):
 
     self.green_lights = []
     self.yellow_lights = []
-    # RED LIGHT IS IMPLICIT
+    self.red_lights = []
+
+
+  def add_in_road(self, road, green=False):
+    road.intersection = self
+    self.in_roads.append(road)
+    if green:
+      self.green_lights.append(road)
+    else:
+      self.red_lights.append(road)
+
+  def add_out_road(self, road):
+    self.out_roads.append(road)
 
   def transfer_car(self, car):
     if self.destroy_car:
       return
     
-    road = self.out_roads[0] # NEED TO ROUTE
-    if road:
-      next_car = road.last_car()
-      if next_car:
-        next_car_pos = next_car.position
-      else:
-        next_car_pos = float("inf")
-      excess = car.position - car.road.length
-      road.enter_car(car)
-      car.position = min(excess, next_car_pos)
+    road = car.next_turn()
+    assert road in self.out_roads
 
-  # Is any road open?
-  def can_cross(self, from_road, to_road):
-    return (from_road in self.green_lights) # and to_road not backed up
+    next_car = road.last_car()
+    if next_car:
+      next_car_pos = next_car.position
+    else:
+      next_car_pos = float("inf")
+    excess = car.position - car.road.length
+    road.enter_car(car)
+    car.position = min(excess, next_car_pos)
+
+  # Can this car go through this intersection to where it wants to go?
+  def can_cross(self, car):
+    return (car.road in self.green_lights) # and to_road not backed up
             
 
   # Needs to manage green-light and create cars
@@ -228,6 +266,7 @@ class Intersection(object):
     pass
 
 # RED/GREEN (No yellow yet!)
+# It rotates green among all in-roads, no concept of orthogonal roads/turns
 class BasicLight(Intersection):
   def __init__(self):
     Intersection.__init__(self)
@@ -239,11 +278,20 @@ class BasicLight(Intersection):
     self.current_light_length += step
     if self.current_light_length > self.green_light_length:
       self.current_light_length = 0
-      if len(self.in_roads) == 1: # We just want to turn light on and off
-        if len(self.green_lights) == 1:
-          self.green_lights = []
-        else:
-          self.green_lights = [self.in_roads[0]]
+   
+      next_green = None
+      if len(self.red_lights) > 0:
+        next_green = self.red_lights.pop()
+
+      next_red = None
+      if len(self.green_lights) > 0:
+        next_red = self.green_lights.pop()
+
+      if next_green:
+        self.green_lights.append(next_green)
+      if next_red:
+        self.red_lights.append(next_red)
+
 
 
 
@@ -267,6 +315,8 @@ class World(object):
       
 
 
+
+
 pygame.init()
 
 windowSurface = pygame.display.set_mode((400, 400), 0, 32)
@@ -274,13 +324,25 @@ pygame.display.set_caption('Traffic Simulator')
 
 world = World()
 
+# IN ROAD
 road1 = Road()
 road1.set_line((0, 200), (200, 200))
 world.roads.append(road1)
 
+# OUT ROAD
 road2 = Road()
 road2.set_line((200,200), (200, 400))
 world.roads.append(road2)
+
+# SECOND IN ROAD
+road3 = Road()
+road3.set_line((200, 0), (200, 200))
+world.roads.append(road3)
+
+# SECOND OUT ROAD
+road4 = Road()
+road4.set_line((200,200), (400, 200))
+world.roads.append(road4)
 
 intersection = Intersection()
 intersection.create_car = True
@@ -288,21 +350,32 @@ intersection.new_cars_per_second = 1
 intersection.out_roads.append(road1)
 world.intersections.append(intersection)
 
+intersection = Intersection()
+intersection.create_car = True
+intersection.new_cars_per_second = 1
+intersection.out_roads.append(road3)
+world.intersections.append(intersection)
+
 intersection = BasicLight()
 intersection.green_light_length = 10
 intersection.destroy_car = False
-intersection.in_roads = [road1]
-intersection.out_roads = [road2]
-road1.intersection = intersection
+intersection.add_in_road(road1)
+intersection.add_in_road(road3)
+intersection.add_out_road(road2)
+intersection.add_out_road(road4)
+world.intersections.append(intersection)
+
+
+# THEY ARE BECOME DEATH, DESTROYER OF CARS
+intersection = Intersection()
+intersection.destroy_car = True
+intersection.add_in_road(road2, green=True)
 world.intersections.append(intersection)
 
 intersection = Intersection()
 intersection.destroy_car = True
-intersection.in_roads = [road2]
-intersection.green_lights = [road2]
-road2.intersection = intersection
+intersection.add_in_road(road4, green=True)
 world.intersections.append(intersection)
-
 
 while True:
   for event in pygame.event.get():
