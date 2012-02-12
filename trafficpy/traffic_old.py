@@ -54,12 +54,7 @@ class Car(object):
     self.speed = 0
     self.target_speed = 0
     self.road = None
-    self.prev_road = None
     self.road_choice = None
-  
-  def change_road(self, new_road):
-    self.prev_road = self.road
-    self.road = new_road
 
   def draw(self, surface):
     draw_square(surface, BLACK, self.screen_position(), CAR_RADIUS)
@@ -96,18 +91,11 @@ class Car(object):
   def next_turn(self):
     return self.road_choice
 
-  # No u-turns
-  def allowed_road(self, r):
-    uturn = (r.to_intersection == self.road.from_intersection)
-    return (not uturn)
-
   def after_enter_road(self):
-    self.road_choice = None
-    
-    # Filter out roads we aren't allowed to turn onto
-    road_choices = [r for r in self.road.to_intersection.out_roads if self.allowed_road(r)]
-    if len(road_choices) > 0:
-      self.road_choice = random.choice(road_choices)
+    if len(self.road.intersection.out_roads) > 0:
+      self.road_choice = random.choice(self.road.intersection.out_roads)
+    else:
+      self.road_choice = None
 
 
 
@@ -126,8 +114,7 @@ class Road(object):
 
     # Front = left, Back = right
     self.cars = deque()
-    self.to_intersection = None
-    self.from_intersection = None
+    self.intersection = None
   
   def last_car(self):
     if len(self.cars) == 0:
@@ -146,7 +133,7 @@ class Road(object):
 
   def enter_car(self, car):
     self.cars.append(car)
-    car.change_road(self)
+    car.road = self
     car.position = 0
     car.after_enter_road()
 
@@ -156,11 +143,11 @@ class Road(object):
       c.draw(surface)
 
     # DRAW LIGHT
-    if self in self.to_intersection.green_lights:
+    if self in self.intersection.green_lights:
       self.draw_light(surface, GREEN)
-    elif self in self.to_intersection.yellow_lights:
+    elif self in self.intersection.yellow_lights:
       self.draw_light(surface, YELLOW)
-    elif self in self.to_intersection.red_lights:
+    elif self in self.intersection.red_lights:
       self.draw_light(surface, RED)
 
 
@@ -177,40 +164,37 @@ class Road(object):
       c = self.cars[i]
       
       # If we are at the front of the road and we cannot cross
-      if prev == None and not self.to_intersection.can_cross(c):
+      if prev == None and not self.intersection.can_cross(c):
         # Add an imaginary car to force cars to slow for intersection
         prev = stopped_car_at(self.length)
 
       # If we are in the front of this road 
-      if prev == None and len(self.to_intersection.out_roads) > 0:
-        next_road = c.next_turn()
-        if next_road:
-          next_car = next_road.last_car()
-          
-          if next_car:
-            # Imaginary car in our current road coordinates to mock car on next road
-            prev = Car()
-            prev.speed = next_car.speed
-            prev.position = self.length + next_car.position
+      if prev == None and len(self.intersection.out_roads) > 0:
+        next_road = self.intersection.out_roads[0] # NEED TO ROUTE
+        next_car = next_road.last_car()
+        
+        if next_car:
+          # Imaginary car in our current road coordinates to mock car on next road
+          prev = Car()
+          prev.speed = next_car.speed
+          prev.position = self.length + next_car.position
 
       c.update(step, prev)
 
       # CAR COLLISION PREVENTION (HACK, CARS SHOULD SLOW DOWN)
       if prev and c.position > prev.position - CAR_LENGTH:
-        # print "CAR COLLISION"
         c.hard_stop(prev.position)
       
       # END OF ROAD
       if c.position > self.length:
-        if self.to_intersection.can_cross(c):
+        if self.intersection.can_cross(c):
           # ENTER INTERSECTION
           self.cars.popleft()
-          self.to_intersection.transfer_car(c)
+          self.intersection.transfer_car(c)
 
           i -= 1
         else:
           # STOP AT INTERSECTION (HACK, CARS SHOULD SLOW DOWN)
-          # print "LIGHT COLLISION"
           c.hard_stop(self.length)
       
       if c.road == self:
@@ -235,7 +219,7 @@ class Intersection(object):
 
 
   def add_in_road(self, road, green=False):
-    road.to_intersection = self
+    road.intersection = self
     self.in_roads.append(road)
     if green:
       self.green_lights.append(road)
@@ -243,7 +227,6 @@ class Intersection(object):
       self.red_lights.append(road)
 
   def add_out_road(self, road):
-    road.from_intersection = self
     self.out_roads.append(road)
 
   def transfer_car(self, car):
@@ -298,11 +281,11 @@ class BasicLight(Intersection):
    
       next_green = None
       if len(self.red_lights) > 0:
-        next_green = self.red_lights.pop(0)
+        next_green = self.red_lights.pop()
 
       next_red = None
       if len(self.green_lights) > 0:
-        next_red = self.green_lights.pop(0)
+        next_red = self.green_lights.pop()
 
       if next_green:
         self.green_lights.append(next_green)
@@ -348,7 +331,7 @@ world.roads.append(road1)
 
 # OUT ROAD
 road2 = Road()
-road2.set_line((200,210), (200, 400))
+road2.set_line((200,200), (200, 400))
 world.roads.append(road2)
 
 # SECOND IN ROAD
@@ -358,46 +341,19 @@ world.roads.append(road3)
 
 # SECOND OUT ROAD
 road4 = Road()
-road4.set_line((210,200), (400, 200))
+road4.set_line((200,200), (400, 200))
 world.roads.append(road4)
-
-# A SECOND SET OF ROADS
-
-# IN ROAD
-road5 = Road()
-road5.set_line((200, 210), (0, 210))
-world.roads.append(road5)
-
-# OUT ROAD
-road6 = Road()
-road6.set_line((210,400), (210, 210))
-world.roads.append(road6)
-
-# SECOND IN ROAD
-road7 = Road()
-road7.set_line((210, 200), (210, 0))
-world.roads.append(road7)
-
-# SECOND OUT ROAD
-road8 = Road()
-road8.set_line((400,210), (210, 210))
-world.roads.append(road8)
-
 
 intersection = Intersection()
 intersection.create_car = True
-intersection.destroy_car = True
 intersection.new_cars_per_second = 1
-intersection.add_out_road(road1)
-intersection.add_in_road(road5, green=True)
+intersection.out_roads.append(road1)
 world.intersections.append(intersection)
 
 intersection = Intersection()
 intersection.create_car = True
-intersection.destroy_car = True
 intersection.new_cars_per_second = 1
-intersection.add_out_road(road3)
-intersection.add_in_road(road7, green=True)
+intersection.out_roads.append(road3)
 world.intersections.append(intersection)
 
 intersection = BasicLight()
@@ -405,30 +361,20 @@ intersection.green_light_length = 10
 intersection.destroy_car = False
 intersection.add_in_road(road1)
 intersection.add_in_road(road3)
-intersection.add_in_road(road6)
-intersection.add_in_road(road8)
 intersection.add_out_road(road2)
 intersection.add_out_road(road4)
-intersection.add_out_road(road5)
-intersection.add_out_road(road7)
 world.intersections.append(intersection)
 
 
 # THEY ARE BECOME DEATH, DESTROYER OF CARS
 intersection = Intersection()
-intersection.new_cars_per_second = 1
-intersection.create_car = True
 intersection.destroy_car = True
 intersection.add_in_road(road2, green=True)
-intersection.add_out_road(road6)
 world.intersections.append(intersection)
 
 intersection = Intersection()
-intersection.new_cars_per_second = 1
-intersection.create_car = True
 intersection.destroy_car = True
 intersection.add_in_road(road4, green=True)
-intersection.add_out_road(road8)
 world.intersections.append(intersection)
 
 while True:
