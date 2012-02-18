@@ -295,19 +295,20 @@ class BasicLight(Intersection):
     self.current_light_length += step
     if self.current_light_length > self.green_light_length:
       self.current_light_length = 0
-   
-      next_green = None
-      if len(self.red_lights) > 0:
-        next_green = self.red_lights.pop(0)
+      (self.red_lights, self.green_lights) = (self.green_lights, self.red_lights)
 
-      next_red = None
-      if len(self.green_lights) > 0:
-        next_red = self.green_lights.pop(0)
+      # next_green = None
+      # if len(self.red_lights) > 0:
+      #  next_green = self.red_lights.pop(0)
 
-      if next_green:
-        self.green_lights.append(next_green)
-      if next_red:
-        self.red_lights.append(next_red)
+      # next_red = None
+      #if len(self.green_lights) > 0:
+      #  next_red = self.green_lights.pop(0)
+
+      #if next_green:
+      #  self.green_lights.append(next_green)
+      #if next_red:
+      #  self.red_lights.append(next_red)
 
 
 
@@ -343,7 +344,7 @@ world = World()
 
 # IN ROAD
 road1 = Road()
-road1.set_line((0, 200), (200, 200))
+road1.set_line((0, 210), (200, 210))
 world.roads.append(road1)
 
 # OUT ROAD
@@ -358,14 +359,14 @@ world.roads.append(road3)
 
 # SECOND OUT ROAD
 road4 = Road()
-road4.set_line((210,200), (400, 200))
+road4.set_line((210,210), (400, 210))
 world.roads.append(road4)
 
 # A SECOND SET OF ROADS
 
 # IN ROAD
 road5 = Road()
-road5.set_line((200, 210), (0, 210))
+road5.set_line((200, 200), (0, 200))
 world.roads.append(road5)
 
 # OUT ROAD
@@ -380,7 +381,7 @@ world.roads.append(road7)
 
 # SECOND OUT ROAD
 road8 = Road()
-road8.set_line((400,210), (210, 210))
+road8.set_line((400,200), (210, 200))
 world.roads.append(road8)
 
 
@@ -403,18 +404,16 @@ world.intersections.append(intersection)
 intersection = BasicLight()
 intersection.green_light_length = 10
 intersection.destroy_car = False
-intersection.add_in_road(road1)
+intersection.add_in_road(road1, green=True)
 intersection.add_in_road(road3)
 intersection.add_in_road(road6)
-intersection.add_in_road(road8)
+intersection.add_in_road(road8, green=True)
 intersection.add_out_road(road2)
 intersection.add_out_road(road4)
 intersection.add_out_road(road5)
 intersection.add_out_road(road7)
 world.intersections.append(intersection)
 
-
-# THEY ARE BECOME DEATH, DESTROYER OF CARS
 intersection = Intersection()
 intersection.new_cars_per_second = 1
 intersection.create_car = True
